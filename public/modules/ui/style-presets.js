@@ -80,16 +80,6 @@ function applyStylePreset(presetJson) {
       style.labels.groups[labelGroup] = getStyleAttributes(presetJson[selector]);
     }
 
-    if (selector.startsWith("#burgIcons")) {
-      const group = selector.split("#").pop();
-      style.burgIcons[group] = presetJson[selector];
-    }
-
-    if (selector.startsWith("#anchors")) {
-      const group = selector.split("#").pop();
-      style.anchors[group] = presetJson[selector];
-    }
-
     if (selector === "#terrain") {
       const { set, size, density } = presetJson[selector];
 
@@ -154,8 +144,285 @@ function applyStylePreset(presetJson) {
     if (defaultGroupStyle) style.labels.groups[group.name] = { ...defaultGroupStyle };
   }
 
+  syncPixiCellStylePreset(presetJson);
+
   function getStyleAttributes(attributes) {
     return Object.fromEntries(Object.entries(attributes).filter(([attribute]) => attribute !== "id"));
+  }
+}
+
+function syncPixiCellStylePreset(presetJson) {
+  const layerSelectors = {
+    biomes: "#biomes",
+    cells: "#cells",
+    cultures: "#cults",
+    grid: "#gridOverlay",
+    precipitation: "#prec",
+    provinces: "#provs",
+    religions: "#relig",
+    rivers: "#rivers",
+    states: "#statesBody",
+    temperature: "#temperature",
+    zones: "#zones"
+  };
+  style.mapRenderer ||= {};
+  for (const [layer, selector] of Object.entries(layerSelectors)) {
+    if (!presetJson[selector]) continue;
+    const opacity = presetJson[selector].opacity ?? 1;
+    const current = style.mapRenderer[layer] || {};
+    style.mapRenderer[layer] = {
+      ...current,
+      ...(["cells", "grid", "precipitation", "rivers", "temperature", "zones"].includes(layer)
+        ? {}
+        : {fallbackColor: current.fallbackColor || "#888888"}),
+      opacity: Number(opacity)
+    };
+  }
+  for (const [layer, selector] of Object.entries({
+    cells: "#cells",
+    grid: "#gridOverlay",
+    precipitation: "#prec",
+    temperature: "#temperature",
+    zones: "#zones"
+  })) {
+    const preset = presetJson[selector];
+    if (!preset) continue;
+    const layerStyle = style.mapRenderer[layer] || {};
+    const stroke = (["grid", "precipitation", "temperature", "zones"].includes(layer)
+      ? layerStyle.stroke
+      : layerStyle) || {};
+    const updatedStroke = {
+      ...stroke,
+      cap: preset["stroke-linecap"] || stroke.cap || "butt",
+      color: preset.stroke || stroke.color || "#333333",
+      dash: preset["stroke-dasharray"] || "",
+      opacity: layer === "cells" ? Number(preset.opacity ?? stroke.opacity ?? 1) : Number(stroke.opacity ?? 1),
+      width: Number(preset["stroke-width"] || 0)
+    };
+    style.mapRenderer[layer] = ["grid", "precipitation", "temperature", "zones"].includes(layer)
+      ? {...layerStyle, stroke: updatedStroke}
+      : updatedStroke;
+  }
+  const gridPreset = presetJson["#gridOverlay"];
+  if (gridPreset) {
+    style.mapRenderer.grid = {
+      ...style.mapRenderer.grid,
+      dx: Number(gridPreset.dx || 0),
+      dy: Number(gridPreset.dy || 0),
+      scale: Number(gridPreset.scale || 1),
+      type: gridPreset.type || "pointyHex"
+    };
+  }
+  const precipitationPreset = presetJson["#prec"];
+  if (precipitationPreset) {
+    style.mapRenderer.precipitation = {
+      ...style.mapRenderer.precipitation,
+      fill: {
+        ...style.mapRenderer.precipitation.fill,
+        color: precipitationPreset.fill || style.mapRenderer.precipitation.fill?.color || "#003dff",
+        opacity: style.mapRenderer.precipitation.fill?.opacity ?? 1
+      }
+    };
+  }
+  const temperaturePreset = presetJson["#temperature"];
+  if (temperaturePreset) {
+    style.mapRenderer.temperature = {
+      ...style.mapRenderer.temperature,
+      bandOpacity: Number(temperaturePreset["fill-opacity"] ?? 0.3),
+      labels: {
+        ...style.mapRenderer.temperature.labels,
+        color: temperaturePreset.fill || style.mapRenderer.temperature.labels?.color || "#000000",
+        fontFamily: temperaturePreset["font-family"] || "Arial, sans-serif",
+        fontSize: Number.parseFloat(temperaturePreset["font-size"] || "8") || 8,
+        fontWeight: "bold",
+        opacity: style.mapRenderer.temperature.labels?.opacity ?? 1
+      }
+    };
+  }
+  const riversPreset = presetJson["#rivers"];
+  if (riversPreset) {
+    style.mapRenderer.rivers = {
+      ...style.mapRenderer.rivers,
+      fill: {
+        ...style.mapRenderer.rivers.fill,
+        color: riversPreset.fill || style.mapRenderer.rivers.fill?.color || "#5d97bb",
+        opacity: style.mapRenderer.rivers.fill?.opacity ?? 1
+      }
+    };
+  }
+  const routeRoles = {...(style.mapRenderer.routes?.roles || {})};
+  for (const group of ["roads", "trails", "searoutes"]) {
+    const preset = presetJson[`#${group}`];
+    if (!preset) continue;
+    const current = routeRoles[group] || style.mapRenderer.routes?.default || {};
+    routeRoles[group] = {
+      ...current,
+      cap: preset["stroke-linecap"] || current.cap || "butt",
+      color: preset.stroke || current.color || "#d06324",
+      dash: String(preset["stroke-dasharray"] || ""),
+      opacity: Number(preset.opacity ?? current.opacity ?? 1),
+      width: Number(preset["stroke-width"] || 0)
+    };
+  }
+  style.mapRenderer.routes = {
+    ...(style.mapRenderer.routes || {}),
+    default: style.mapRenderer.routes?.default || routeRoles.roads,
+    roles: routeRoles
+  };
+  const burgIconRoles = {};
+  const burgAnchorRoles = {};
+  for (const {name} of options.burgs.groups) {
+    const iconPreset = presetJson[`#burgIcons > g#${name}`];
+    if (iconPreset) burgIconRoles[name] = pointSymbolStyle(iconPreset, "circle");
+    const anchorPreset = presetJson[`#anchors > g#${name}`];
+    if (anchorPreset) burgAnchorRoles[name] = pointSymbolStyle(anchorPreset, "anchor");
+  }
+  if (Object.keys(burgIconRoles).length || Object.keys(burgAnchorRoles).length) {
+    style.mapRenderer.burgIcons = {
+      anchors: {
+        default: burgAnchorRoles.town || Object.values(burgAnchorRoles)[0] || pointSymbolStyle({}, "anchor"),
+        roles: burgAnchorRoles
+      },
+      icons: {
+        default: burgIconRoles.town || Object.values(burgIconRoles)[0] || pointSymbolStyle({}, "circle"),
+        roles: burgIconRoles
+      },
+      opacity: 1
+    };
+  }
+  const markerPreset = presetJson["#markers"];
+  if (markerPreset) {
+    style.mapRenderer.markers = {
+      opacity: Number(markerPreset.opacity ?? 1),
+      rescale: Boolean(Number(markerPreset.rescale ?? 1))
+    };
+  }
+  const icePreset = presetJson["#ice"];
+  if (icePreset) {
+    const current = style.mapRenderer.ice || {};
+    const area = {
+      fill: {
+        color: icePreset.fill || current.default?.fill?.color || "#f1f8fe",
+        opacity: Number(icePreset.opacity ?? current.default?.fill?.opacity ?? 0.9)
+      },
+      stroke: {
+        cap: icePreset["stroke-linecap"] || current.default?.stroke?.cap || "round",
+        color: icePreset.stroke || current.default?.stroke?.color || "#e8f0f6",
+        dash: String(icePreset["stroke-dasharray"] || ""),
+        opacity: 1,
+        width: Number(icePreset["stroke-width"] ?? current.default?.stroke?.width ?? 0.5)
+      }
+    };
+    style.mapRenderer.ice = {default: area, opacity: 1, roles: {glacier: area, iceberg: area}};
+  }
+  const goodsCellsPreset = presetJson["#goodsCells"];
+  const goodsIconsPreset = presetJson["#goodsIcons"];
+  const goodsBurgsPreset = presetJson["#goodsBurgs"];
+  if (goodsCellsPreset || goodsIconsPreset || goodsBurgsPreset) {
+    const current = style.mapRenderer.goods || {};
+    style.mapRenderer.goods = {
+      ...current,
+      burgs: {
+        ...(current.burgs || {}),
+        iconSize: Number(goodsBurgsPreset?.["data-size"] ?? current.burgs?.iconSize ?? 3),
+        opacity: Number(goodsBurgsPreset?.opacity ?? current.burgs?.opacity ?? 1),
+        stroke: goodsBurgsPreset?.stroke || current.burgs?.stroke || "#41414f",
+        strokeWidth: Number(goodsBurgsPreset?.["stroke-width"] ?? current.burgs?.strokeWidth ?? 0.2)
+      },
+      cells: {opacity: Number(goodsCellsPreset?.opacity ?? current.cells?.opacity ?? 1)},
+      icons: {
+        ...(current.icons || {}),
+        circle: Boolean(Number(goodsIconsPreset?.["data-circle"] ?? current.icons?.circle ?? 1)),
+        opacity: Number(goodsIconsPreset?.opacity ?? current.icons?.opacity ?? 1),
+        size: Number(goodsIconsPreset?.["data-size"] ?? current.icons?.size ?? 6),
+        strokeWidth: Number(goodsIconsPreset?.["stroke-width"] ?? current.icons?.strokeWidth ?? 0.3)
+      },
+      opacity: 1
+    };
+  }
+  const marketsPreset = presetJson["#markets"];
+  if (marketsPreset) {
+    style.mapRenderer.markets = {
+      ...(style.mapRenderer.markets || {}),
+      areaOpacity: Number(marketsPreset["fill-opacity"] ?? 0.03),
+      borderOpacity: Number(marketsPreset["stroke-opacity"] ?? 0.8),
+      borderWidth: Number(marketsPreset["stroke-width"] ?? 1),
+      icon: marketsPreset["data-icon"] || "⚖️",
+      iconSize: Number(marketsPreset["font-size"] ?? 5),
+      opacity: Number(marketsPreset.opacity ?? 1),
+      radius: Number(marketsPreset["data-size"] ?? 3)
+    };
+  }
+  const populationPreset = presetJson["#population"];
+  const ruralPreset = presetJson["#rural"];
+  const urbanPreset = presetJson["#urban"];
+  if (populationPreset || ruralPreset || urbanPreset) {
+    const current = style.mapRenderer.population || {};
+    const line = (role, preset, fallbackColor) => ({
+      ...(current[role] || {}),
+      cap: populationPreset?.["stroke-linecap"] || current[role]?.cap || "butt",
+      color: preset?.stroke || current[role]?.color || fallbackColor,
+      dash: String(populationPreset?.["stroke-dasharray"] || ""),
+      opacity: current[role]?.opacity ?? 1,
+      width: Number(populationPreset?.["stroke-width"] ?? current[role]?.width ?? 1.6)
+    });
+    style.mapRenderer.population = {
+      ...current,
+      opacity: Number(populationPreset?.opacity ?? current.opacity ?? 1),
+      rural: line("rural", ruralPreset, "#0000ff"),
+      urban: line("urban", urbanPreset, "#ff0000")
+    };
+  }
+  const armiesPreset = presetJson["#armies"];
+  if (armiesPreset) {
+    style.mapRenderer.military = {
+      ...(style.mapRenderer.military || {}),
+      boxSize: Number(armiesPreset["box-size"] ?? 3),
+      fillOpacity: Number(armiesPreset["fill-opacity"] ?? 1),
+      fontFamily: style.mapRenderer.military?.fontFamily || "Helvetica, Arial, sans-serif",
+      opacity: Number(armiesPreset.opacity ?? 1),
+      stroke: armiesPreset.stroke || "#000000",
+      strokeWidth: Number(armiesPreset["stroke-width"] ?? 0.3),
+      textColor: style.mapRenderer.military?.textColor || "#ffffff"
+    };
+  }
+  const compassPreset = presetJson["#compass"];
+  const compassUsePreset = presetJson["#compass > use"];
+  if (compassPreset || compassUsePreset) {
+    const transform = String(compassUsePreset?.transform || "");
+    const translate = transform.match(/translate\(\s*([-+.\d]+)[ ,]+([-+.\d]+)/);
+    const scale = transform.match(/scale\(\s*([-+.\d]+)/);
+    style.mapRenderer.compass = {
+      ...(style.mapRenderer.compass || {}),
+      opacity: Number(compassPreset?.opacity ?? 0.8),
+      scale: Number(scale?.[1] ?? 0.25),
+      x: Number(translate?.[1] ?? 80),
+      y: Number(translate?.[2] ?? 80)
+    };
+  }
+  const tradePreset = presetJson["#tradeAnimation"];
+  if (tradePreset) {
+    style.mapRenderer.trade = {
+      ...(style.mapRenderer.trade || {}),
+      opacity: Number(tradePreset.opacity ?? 1)
+    };
+  }
+  window.dispatchEvent(
+    new CustomEvent("map:pixi-renderer:command", {
+      detail: {command: "queue-rebuild"}
+    })
+  );
+
+  function pointSymbolStyle(preset, fallbackIcon) {
+    return {
+      fill: preset.fill || "#ffffff",
+      fillOpacity: Number(preset["fill-opacity"] ?? 1),
+      icon: String(preset["data-icon"] || fallbackIcon).replace(/^#?icon-/, ""),
+      opacity: Number(preset.opacity ?? 1),
+      size: Number(preset["font-size"] || 1),
+      stroke: preset.stroke || "#3e3e4b",
+      strokeWidth: Number(preset["stroke-width"] || 0)
+    };
   }
 }
 
@@ -198,7 +465,7 @@ function applyStyleWithUiRefresh(style) {
   OceanLayers();
   if (layerIsOn("toggleRulers")) drawMeasurers();
   drawRelief();
-  if (layerIsOn("toggleBurgIcons")) drawBurgIcons();
+  if (layerIsOn("toggleBurgIcons")) redrawPixiLayer("burgIcons");
   drawLabels();
 
   invokeActiveZooming();
@@ -417,24 +684,8 @@ function addStylePreset() {
       "data-dx",
       "data-dy"
     ];
-    const burgIconsAttributes = [
-      "opacity",
-      "data-icon",
-      "font-size",
-      "fill",
-      "fill-opacity",
-      "stroke",
-      "stroke-width",
-      "stroke-dasharray",
-      "stroke-linecap",
-      "stroke-linejoin",
-      "filter"
-    ];
-    const anchorsAttributes = ["opacity", "fill", "font-size", "stroke", "stroke-width", "filter"];
     options.burgs.groups.forEach(({ name }) => {
       attributes[`#labels > #${name}`] = burgLabelsAttributes;
-      attributes[`#burgIcons > g#${name}`] = burgIconsAttributes;
-      attributes[`#anchors > g#${name}`] = anchorsAttributes;
     });
 
     for (const selector in attributes) {
@@ -450,7 +701,107 @@ function addStylePreset() {
       }
     }
 
+    const burgStyles = style.mapRenderer?.burgIcons;
+    if (burgStyles) {
+      for (const {name} of options.burgs.groups) {
+        const icon = burgStyles.icons.roles[name] || burgStyles.icons.default;
+        const anchor = burgStyles.anchors.roles[name] || burgStyles.anchors.default;
+        presetStyle[`#burgIcons > g#${name}`] = serializePointSymbol(icon, true);
+        presetStyle[`#anchors > g#${name}`] = serializePointSymbol(anchor, false);
+      }
+    }
+    const markerStyle = style.mapRenderer?.markers;
+    if (markerStyle) {
+      presetStyle["#markers"] = {opacity: markerStyle.opacity, rescale: Number(markerStyle.rescale), filter: null};
+    }
+    const iceStyle = style.mapRenderer?.ice;
+    if (iceStyle) {
+      presetStyle["#ice"] = {
+        opacity: iceStyle.default.fill.opacity,
+        fill: iceStyle.default.fill.color,
+        stroke: iceStyle.default.stroke.color,
+        "stroke-width": iceStyle.default.stroke.width,
+        filter: null
+      };
+    }
+    const goodsStyle = style.mapRenderer?.goods;
+    if (goodsStyle) {
+      presetStyle["#goodsCells"] = {opacity: goodsStyle.cells.opacity, filter: null};
+      presetStyle["#goodsIcons"] = {
+        opacity: goodsStyle.icons.opacity,
+        "stroke-width": goodsStyle.icons.strokeWidth,
+        "data-circle": Number(goodsStyle.icons.circle),
+        "data-size": goodsStyle.icons.size,
+        filter: null
+      };
+      presetStyle["#goodsBurgs"] = {
+        opacity: goodsStyle.burgs.opacity,
+        stroke: goodsStyle.burgs.stroke,
+        "stroke-width": goodsStyle.burgs.strokeWidth,
+        "data-size": goodsStyle.burgs.iconSize,
+        filter: null
+      };
+    }
+    const marketsStyle = style.mapRenderer?.markets;
+    if (marketsStyle) {
+      presetStyle["#markets"] = {
+        opacity: marketsStyle.opacity,
+        "stroke-width": marketsStyle.borderWidth,
+        "fill-opacity": marketsStyle.areaOpacity,
+        "stroke-opacity": marketsStyle.borderOpacity,
+        "data-size": marketsStyle.radius,
+        "font-size": marketsStyle.iconSize,
+        "data-icon": marketsStyle.icon,
+        filter: null
+      };
+    }
+    const populationStyle = style.mapRenderer?.population;
+    if (populationStyle) {
+      presetStyle["#population"] = {
+        opacity: populationStyle.opacity,
+        "stroke-width": populationStyle.rural.width,
+        "stroke-dasharray": populationStyle.rural.dash,
+        "stroke-linecap": populationStyle.rural.cap,
+        filter: null
+      };
+      presetStyle["#rural"] = {stroke: populationStyle.rural.color};
+      presetStyle["#urban"] = {stroke: populationStyle.urban.color};
+    }
+    const militaryStyle = style.mapRenderer?.military;
+    if (militaryStyle) {
+      presetStyle["#armies"] = {
+        opacity: militaryStyle.opacity,
+        "font-size": militaryStyle.boxSize * 2,
+        "box-size": militaryStyle.boxSize,
+        stroke: militaryStyle.stroke,
+        "stroke-width": militaryStyle.strokeWidth,
+        "fill-opacity": militaryStyle.fillOpacity,
+        filter: null
+      };
+    }
+    const compassStyle = style.mapRenderer?.compass;
+    if (compassStyle) {
+      presetStyle["#compass"] = {opacity: compassStyle.opacity, filter: null, mask: null};
+      presetStyle["#compass > use"] = {
+        transform: `translate(${compassStyle.x} ${compassStyle.y}) scale(${compassStyle.scale})`
+      };
+    }
+    const tradeStyle = style.mapRenderer?.trade;
+    if (tradeStyle) presetStyle["#tradeAnimation"] = {opacity: tradeStyle.opacity, filter: null};
+
     if (presetStyle["#terrain"]) Object.assign(presetStyle["#terrain"], style.relief);
+
+    function serializePointSymbol(symbol, includeIcon) {
+      return {
+        ...(includeIcon ? {"data-icon": `#icon-${symbol.icon}`} : {}),
+        opacity: symbol.opacity,
+        fill: symbol.fill,
+        "fill-opacity": symbol.fillOpacity,
+        "font-size": symbol.size,
+        stroke: symbol.stroke,
+        "stroke-width": symbol.strokeWidth
+      };
+    }
 
     for (const [group, groupStyle] of Object.entries(style.labels.groups)) {
       addStoredLabelStyle(`#labels > #${group}`, groupStyle);

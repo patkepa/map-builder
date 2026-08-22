@@ -1,7 +1,7 @@
 import type { ZoomBehavior } from "d3";
 import { renderGroupCOAs } from "@/renderers/draw-emblems";
-import { rescaleVisibleMarkers } from "@/renderers/draw-markers";
 import { drawScaleBar, fitScaleBar } from "@/renderers/draw-scalebar";
+import { syncPixiRendererCamera } from "@/renderers/pixi/pixi-renderer-controller";
 import { ensureEl, findEl } from "@/utils/nodeUtils";
 import { rn } from "@/utils/numberUtils";
 import { type ZoomChanges, ZoomSettler } from "./zoom-settler";
@@ -73,6 +73,8 @@ function handleZoomPerFrame(): void {
   if (!didScaleChange && !didPositionChange) return;
 
   viewbox.attr("transform", `translate(${viewX} ${viewY}) scale(${scale})`);
+  syncPixiRendererCamera();
+  window.updateMinimap?.();
   redrawTracedImage();
   ViewportLayers.schedule();
 }
@@ -89,8 +91,6 @@ function handleZoomEnd(): void {
 }
 
 function handleZoomSettled({ scale: didScaleChange, position: didPositionChange }: ZoomChanges): void {
-  window.updateMinimap?.();
-
   if (didScaleChange) {
     drawScaleBar(scaleBar, scale);
     fitScaleBar(scaleBar, svgWidth, svgHeight);
@@ -148,8 +148,6 @@ function invokeActiveZooming(): void {
     const haloSize = rn(desired / scale ** 0.8, 2);
     statesHalo.attr("stroke-width", haloSize).style("display", haloSize > 0.1 ? "block" : "none");
   }
-
-  rescaleVisibleMarkers();
 }
 
 /** Zoom to a specific point */

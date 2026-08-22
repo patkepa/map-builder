@@ -19,8 +19,6 @@ declare global {
    */
   interface Window {
     LayerControls: import("../components/layers/layer-controls").LegacyLayerControls;
-    redrawGlacier: typeof import("../renderers/draw-ice").redrawGlacier;
-    redrawIceberg: typeof import("../renderers/draw-ice").redrawIceberg;
     tip: typeof import("../components/tooltips").tip;
     clearMainTip: typeof import("../components/tooltips").clearMainTip;
     showDataTip: typeof import("../components/tooltips").showDataTip;
@@ -30,6 +28,9 @@ declare global {
     stored: typeof import("../utils/preferences").stored;
     applyDefaultViewboxEvents: typeof import("../components/viewbox-events").applyDefaultViewboxEvents;
     drawRelief: typeof import("../renderers/draw-relief-icons").drawRelief;
+    drawBorders: typeof import("../renderers/draw-borders").drawBorders;
+    drawBiomes: typeof import("../renderers/draw-biomes").drawBiomes;
+    drawStates: () => void;
     redrawRelief: typeof import("../renderers/draw-relief-icons").redrawRelief;
     redrawLegend: typeof import("../renderers/draw-legend").redrawLegend;
     fitLegendBox: typeof import("../renderers/draw-legend").fitLegendBox;
@@ -57,8 +58,6 @@ declare global {
     setMapZoom: typeof import("../components/zoom").setMapZoom;
     changeMapZoom: typeof import("../components/zoom").changeMapZoom;
     MapPerformance: typeof import("../services/performance-monitor").MapPerformance;
-    ViewportPopulation: { draw: () => void; clear: () => void };
-    ViewportPrecipitation: { draw: () => void; clear: () => void };
     ViewportCells: { draw: () => void; clear: () => void };
     GridGeneration: typeof import("../generators/grid-generation").GridGeneration;
     drawStateLabels: (ids?: number[]) => void;
@@ -113,12 +112,8 @@ declare global {
   var svg: Selection<SVGSVGElement, unknown, null, undefined>;
   var ice: Selection<SVGGElement, unknown, null, undefined>;
   var labels: Selection<SVGGElement, unknown, null, undefined>;
-  var burgIcons: Selection<SVGGElement, unknown, null, undefined>;
-  var anchors: Selection<SVGGElement, unknown, null, undefined>;
   var terrs: Selection<SVGGElement, unknown, null, undefined>;
   var temperature: Selection<SVGGElement, unknown, null, undefined>;
-  var markers: Selection<SVGGElement, unknown, null, undefined>;
-  var tradeAnimation: Selection<SVGGElement, unknown, null, undefined>;
   var defs: Selection<SVGDefsElement, unknown, null, undefined>;
   var coastline: Selection<SVGGElement, unknown, null, undefined>;
   var lakes: Selection<SVGGElement, unknown, null, undefined>;
@@ -140,7 +135,6 @@ declare global {
   var cells: Selection<SVGGElement, unknown, null, undefined>;
   var gridOverlay: Selection<SVGGElement, unknown, null, undefined>;
   var coordinates: Selection<SVGGElement, unknown, null, undefined>;
-  var compass: Selection<SVGGElement, unknown, null, undefined>;
   var terrain: Selection<SVGGElement, unknown, null, undefined>;
   var zones: Selection<SVGGElement, unknown, null, undefined>;
   var borders: Selection<SVGGElement, unknown, null, undefined>;
@@ -274,7 +268,6 @@ declare global {
   var toggleRivers: (event?: MouseEvent) => void;
   var toggleIce: (event?: MouseEvent) => void;
   var toggleMarkers: (event?: MouseEvent) => void;
-  var drawMarkers: () => void;
 
   var tinymce:
     | {

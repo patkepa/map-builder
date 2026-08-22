@@ -2,6 +2,7 @@
 
 import { closeDialogs } from "@/components/dialog/dialog-helpers";
 import { tip } from "@/components/tooltips";
+import { capturePixiLayerVisibility } from "@/renderers/pixi/pixi-layer-visibility-state";
 import { Services } from "@/services";
 import { getUsedFonts } from "@/services/fonts";
 import { VERSION } from "@/services/versioning";
@@ -76,7 +77,7 @@ function prepareMapData(): string {
   const measurers = JSON.stringify(pack.measurers ?? []);
   const fonts = JSON.stringify(getUsedFonts(ensureEl("map") as Element as SVGSVGElement));
 
-  // save svg
+  // The SVG slot is retained temporarily for unmigrated overlay data. Pixi-owned layers are intentionally absent.
   const cloneEl = ensureEl("map").cloneNode(true) as SVGSVGElement;
 
   // reset transform values to default
@@ -91,9 +92,6 @@ function prepareMapData(): string {
 
   const cloneRuler = cloneEl.querySelector("#ruler");
   if (cloneRuler) cloneRuler.innerHTML = ""; // always remove rulers
-  const cloneTradeAnimation = cloneEl.querySelector("#tradeAnimation");
-  if (cloneTradeAnimation) cloneTradeAnimation.innerHTML = ""; // always remove transient trade animations
-
   const serializedSVG = new XMLSerializer().serializeToString(cloneEl);
 
   const { spacing, cellsX, cellsY, boundary, points, features, cellsDesired } = grid;
@@ -116,6 +114,7 @@ function prepareMapData(): string {
   const markets = JSON.stringify(pack.markets || []);
   const deals = JSON.stringify(pack.deals || []);
   const labels = JSON.stringify(pack.addedLabels || []);
+  capturePixiLayerVisibility(style, controlId => layerIsOn(controlId));
   const styleData = JSON.stringify(style);
 
   // store custom good icons

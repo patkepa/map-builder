@@ -32,7 +32,7 @@ export function applyDefaultViewboxEvents(): void {
 type Opener = (target: SVGElement, parent: SVGElement) => void;
 
 const PARENT_EDITORS: Record<string, Opener> = {
-  rivers: target => Controllers.RiverEditor.open(target.id),
+  rivers: target => Controllers.RiverEditor.open(Number(target.dataset.id ?? target.id.slice(5))),
   ice: target => Controllers.IceEditor.open(target),
   terrain: target => Controllers.ReliefEditor.open(target),
   goodsCells: () => Controllers.GoodsEditor.open()
@@ -40,9 +40,7 @@ const PARENT_EDITORS: Record<string, Opener> = {
 
 const GRAND_EDITORS: Record<string, Opener> = {
   emblems: target => Controllers.EmblemsEditor.open(undefined, undefined, undefined, target),
-  routes: target => Controllers.RouteEditor.open(target.id),
-  burgIcons: target => Controllers.BurgEditor.open(Number(target.dataset.id)),
-  markers: target => Controllers.MarkersEditor.open(undefined, target),
+  routes: target => Controllers.RouteEditor.open(Number(target.dataset.id ?? target.id.slice(5))),
   ruler: () => Controllers.MeasurersEditor.open(),
   goodsIcons: () => Controllers.GoodsEditor.open(),
   goodsBurgs: (_target, parent) => Controllers.ProductionOverview.open(Number(parent.dataset.id)),
@@ -54,7 +52,6 @@ const GRAND_EDITORS: Record<string, Opener> = {
 };
 
 const GREAT_EDITORS: Record<string, Opener> = {
-  markers: target => Controllers.MarkersEditor.open(undefined, target),
   ruler: () => Controllers.MeasurersEditor.open(),
   armies: (_target, parent) => Controllers.RegimentEditor.open(`#${parent.id}`)
 };

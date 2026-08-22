@@ -39,7 +39,6 @@ let biomes = viewbox.append("g").attr("id", "biomes");
 let cells = viewbox.append("g").attr("id", "cells");
 let gridOverlay = viewbox.append("g").attr("id", "gridOverlay");
 let coordinates = viewbox.append("g").attr("id", "coordinates");
-let compass = viewbox.append("g").attr("id", "compass").style("display", "none");
 let rivers = viewbox.append("g").attr("id", "rivers");
 let terrain = viewbox.append("g").attr("id", "terrain").style("display", "none");
 let relig = viewbox.append("g").attr("id", "relig");
@@ -58,19 +57,16 @@ let trails = routes.append("g").attr("id", "trails");
 let searoutes = routes.append("g").attr("id", "searoutes");
 let temperature = viewbox.append("g").attr("id", "temperature");
 let coastline = viewbox.append("g").attr("id", "coastline");
-let ice = viewbox.append("g").attr("id", "ice");
-let goods = viewbox.append("g").attr("id", "goods").style("display", "none");
-let markets = viewbox.append("g").attr("id", "markets");
-let tradeAnimation = viewbox.append("g").attr("id", "tradeAnimation").style("display", "none");
+// Pixi-owned entity layers have no live SVG groups. These selections only receive imported legacy groups during load.
+let ice = viewbox.select("#ice");
+let goods = viewbox.select("#goods");
+let markets = viewbox.select("#markets");
 let prec = viewbox.append("g").attr("id", "prec").style("display", "none");
-let population = viewbox.append("g").attr("id", "population");
+let population = viewbox.select("#population");
 let emblems = viewbox.append("g").attr("id", "emblems").style("display", "none");
 let icons = viewbox.append("g").attr("id", "icons");
 let labels = viewbox.append("g").attr("id", "labels").attr("font-size", "100px");
-let burgIcons = icons.append("g").attr("id", "burgIcons");
-let anchors = icons.append("g").attr("id", "anchors");
-let armies = viewbox.append("g").attr("id", "armies");
-let markers = viewbox.append("g").attr("id", "markers");
+let armies = viewbox.select("#armies");
 let fogging = viewbox
   .append("g")
   .attr("id", "fogging-cont")
@@ -94,22 +90,10 @@ coastline.append("g").attr("id", "lake_island");
 terrs.append("g").attr("id", "oceanHeights");
 terrs.append("g").attr("id", "landHeights");
 
-// population groups
-population.append("g").attr("id", "rural");
-population.append("g").attr("id", "urban");
-
-// goods groups
-goods.append("g").attr("id", "goodsCells");
-goods.append("g").attr("id", "goodsIcons");
-goods.append("g").attr("id", "goodsBurgs");
-
 // emblem groups
 emblems.append("g").attr("id", "burgEmblems");
 emblems.append("g").attr("id", "provinceEmblems");
 emblems.append("g").attr("id", "stateEmblems");
-
-// compass
-compass.append("use").attr("xlink:href", "#defs-compass-rose");
 
 // fogging
 fogging.append("rect").attr("x", 0).attr("y", 0).attr("width", "100%").attr("height", "100%");
@@ -163,7 +147,10 @@ let options = {
 };
 
 // global style object; in v2.0 to be used for all map styles and render settings
-let style = { labels: { groups: {} }, burgIcons: {}, anchors: {}, relief: { set: "simple", size: 1, density: 0.4 } };
+let style = {
+  labels: {groups: {}},
+  relief: {set: "simple", size: 1, density: 0.4}
+};
 
 let color = d3.scaleSequential(d3.interpolateSpectral); // default color scheme
 const lineGen = d3.line().curve(d3.curveBasis); // d3 line generator with default curve interpolation
@@ -225,7 +212,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     await checkLoadParameters();
   }
   initiateAutosave();
-  initTourPromptButton();
 });
 
 function hideLoading() {
@@ -339,24 +325,6 @@ function focusOn() {
     const y = +params.get("y") || graphHeight / 2;
     zoomTo(x, y, scale, 1600);
   }
-}
-
-function initTourPromptButton() {
-  const MAX_SHOWS = 3;
-  const STORAGE_KEY = "fmg-tour-prompt-count";
-
-  const count = parseInt(localStorage.getItem(STORAGE_KEY) || "0", 10);
-  if (count >= MAX_SHOWS) return;
-
-  const btn = document.getElementById("tourPromptButton");
-  if (!btn) return;
-
-  btn.style.display = "flex";
-  btn.addEventListener("click", async () => {
-    window.Services.UiTour.start();
-    localStorage.setItem(STORAGE_KEY, MAX_SHOWS);
-  });
-  localStorage.setItem(STORAGE_KEY, count + 1);
 }
 
 // find burg for MFCG and focus on it
@@ -1164,6 +1132,7 @@ const regenerateMap = debounce(async function (config) {
 // clear the map
 function undraw() {
   window.ViewportLayers?.clearAll();
+  window.dispatchEvent(new CustomEvent("map:pixi-renderer:command", {detail: {command: "clear"}}));
   viewbox
     .selectAll("path, circle, polygon, line, text, use, #texture > image, #zones > g, #armies > g, #ruler > g")
     .remove();

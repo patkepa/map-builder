@@ -5,18 +5,17 @@ import { defaultOptions } from "@/data/view-3d-options";
 import type { Label, LabelNameMode } from "@/generators/labels-generator";
 import type { Measurer, MeasurerType } from "@/generators/measurers-generator";
 import type { Point } from "@/generators/voronoi";
-import { drawBurgIcons } from "@/renderers/draw-burg-icons";
 import { drawEmblems } from "@/renderers/draw-emblems";
 import { drawFeatures } from "@/renderers/draw-features";
 import { drawHeightmap } from "@/renderers/draw-heightmap";
 import { drawIce } from "@/renderers/draw-ice";
-import { drawMarkers } from "@/renderers/draw-markers";
 import { drawMeasurers } from "@/renderers/draw-measurers";
 import { drawMilitary } from "@/renderers/draw-military";
 import { setReliefLayerActive } from "@/renderers/draw-relief-icons";
 import { drawScaleBar, fitScaleBar } from "@/renderers/draw-scalebar";
 import { getGroupStyle } from "@/renderers/labels/label-groups";
 import { unfog } from "@/renderers/overlays/fogging";
+import { invalidateBurgSymbols, invalidateMarkerSymbols } from "@/renderers/point-symbols";
 import { compareVersions } from "@/services/versioning";
 import type { ReliefSet } from "@/types/relief";
 import type { LabelGroupStyle } from "@/types/style";
@@ -87,7 +86,7 @@ export function applyLegacySvgMigrations(mapVersion: string, data: string[]): vo
       .attr("stroke-dasharray", null)
       .attr("stroke-linecap", "butt");
     Zones.generate();
-    if (!select("#markers").selectAll("*").size()) {
+    if (!pack.markers?.length) {
       Markers.generate();
       turnButtonOn("toggleMarkers");
     }
@@ -623,7 +622,7 @@ export function applyLegacySvgMigrations(mapVersion: string, data: string[]): vo
       markerElements.forEach(el => {
         el.remove();
       });
-      if (layerIsOn("markers")) drawMarkers();
+      if (layerIsOn("markers")) invalidateMarkerSymbols();
     }
   }
 
@@ -882,18 +881,6 @@ export function applyLegacySvgMigrations(mapVersion: string, data: string[]): vo
     });
   }
 
-  if (isOlderThan("1.98.0")) {
-    // v1.98.00 changed compass layer and rose element id
-    const rose = select("#compass").select("use");
-    rose.attr("xlink:href", "#defs-compass-rose");
-
-    if (!select("#compass").selectAll("*").size()) {
-      select("#compass").style("display", "none");
-      select("#compass").append("use").attr("xlink:href", "#defs-compass-rose");
-      shiftCompass();
-    }
-  }
-
   if (isOlderThan("1.99.0")) {
     // v1.99.00 changed routes generation algorithm and data format
     select("#routes").attr("display", null).attr("style", null);
@@ -1012,7 +999,7 @@ export function applyLegacySvgMigrations(mapVersion: string, data: string[]): vo
 
   if (isOlderThan("1.107.0")) {
     // v1.107.0 allowed custom images for markers and regiments
-    if (layerIsOn("toggleMarkers")) drawMarkers();
+    if (layerIsOn("toggleMarkers")) invalidateMarkerSymbols();
     if (layerIsOn("toggleMilitary")) drawMilitary();
   }
 
@@ -1093,7 +1080,7 @@ export function applyLegacySvgMigrations(mapVersion: string, data: string[]): vo
       }
     });
 
-    layerIsOn("toggleBurgIcons") && drawBurgIcons();
+    layerIsOn("toggleBurgIcons") && invalidateBurgSymbols();
     const opts = options as Record<string, unknown>;
     delete opts.showBurgPreview;
     delete opts.showMFCGMap;
@@ -1190,8 +1177,6 @@ export function applyLegacySvgMigrations(mapVersion: string, data: string[]): vo
     select("#goods").append("g").attr("id", "goodsIcons").attr("data-circle", "1");
     select("#goods").append("g").attr("id", "goodsBurgs");
     markets = viewbox.insert("g", "#emblems").attr("id", "markets").attr("fill-opacity", "0").style("display", "none");
-    tradeAnimation = viewbox.insert("g", "#goods").attr("id", "tradeAnimation");
-
     options.trade = { animation: TradeAnimation.getDefaultOptions() };
 
     for (const state of pack.states) {

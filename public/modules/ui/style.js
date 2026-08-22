@@ -83,11 +83,30 @@ styleElementSelect.addEventListener("change", selectStyleElement);
 function selectStyleElement() {
   const styleElement = styleElementSelect.value;
   let el = d3.select("#" + styleElement);
+  const routeGroups = styleElement === "routes" ? getPixiRouteGroups() : [];
+  const requestedRouteGroup = styleGroupSelect.value;
+  const routeGroup = routeGroups.includes(requestedRouteGroup) ? requestedRouteGroup : routeGroups[0];
 
   styleElements.querySelectorAll("tbody").forEach(e => (e.style.display = "none")); // hide all sections
 
   // show alert line if layer is not visible
-  const isLayerOff = styleElement !== "ocean" && (el.style("display") === "none" || !el.selectAll("*").size());
+  const semanticControl = {
+    armies: "toggleMilitary",
+    burgIcons: "toggleBurgIcons",
+    compass: "toggleCompass",
+    goodsBurgs: "toggleGoods",
+    goodsCells: "toggleGoods",
+    goodsIcons: "toggleGoods",
+    ice: "toggleIce",
+    markers: "toggleMarkers",
+    markets: "toggleMarketsLayer",
+    population: "togglePopulation",
+    routes: "toggleRoutes",
+    tradeAnimation: "toggleTrade"
+  }[styleElement];
+  const isLayerOff = semanticControl
+    ? !layerIsOn(semanticControl)
+    : styleElement !== "ocean" && (el.style("display") === "none" || !el.selectAll("*").size());
   styleIsOff.style.display = isLayerOff ? "block" : "none";
 
   // active group element
@@ -97,7 +116,7 @@ function selectStyleElement() {
     if (styleElement === "labels") {
       const selected = group && el.select(`[data-group="${CSS.escape(group)}"]`);
       el = selected && selected.size() ? selected : el.select(defaultGroupSelector);
-    } else {
+    } else if (styleElement !== "routes") {
       el = group && el.select("#" + group).size() ? el.select("#" + group) : el.select(defaultGroupSelector);
     }
   }
@@ -109,7 +128,25 @@ function selectStyleElement() {
   }
 
   // filter
-  if (!["landmass", "legend", "regions", "scaleBar"].includes(styleElement)) {
+  if (
+    ![
+      "goodsBurgs",
+      "goodsCells",
+      "goodsIcons",
+      "armies",
+      "compass",
+      "ice",
+      "landmass",
+      "legend",
+      "markers",
+      "markets",
+      "population",
+      "regions",
+      "routes",
+      "tradeAnimation",
+      "scaleBar"
+    ].includes(styleElement)
+  ) {
     styleFilter.style.display = "block";
     styleFilterInput.value = el.attr("filter") || "";
   }
@@ -170,12 +207,10 @@ function selectStyleElement() {
     [
       "biomes",
       "cells",
-      "compass",
       "coordinates",
       "gridOverlay",
       "population",
       "prec",
-      "routes",
       "temperature",
       "terrain",
       "texture",
@@ -208,7 +243,16 @@ function selectStyleElement() {
 
   if (styleElement === "markers") {
     styleMarkers.style.display = "block";
-    styleRescaleMarkers.checked = +markers.attr("rescale");
+    styleOpacityInput.value = style.mapRenderer?.markers?.opacity ?? 1;
+    styleRescaleMarkers.checked = style.mapRenderer?.markers?.rescale ?? true;
+  }
+
+  if (styleElement === "ice") {
+    const iceStyle = style.mapRenderer?.ice?.default;
+    styleOpacityInput.value = style.mapRenderer?.ice?.opacity ?? 1;
+    styleFillInput.value = styleFillOutput.value = iceStyle?.fill?.color ?? "#f1f8fe";
+    styleStrokeInput.value = styleStrokeOutput.value = iceStyle?.stroke?.color ?? "#e8f0f6";
+    styleStrokeWidthInput.value = iceStyle?.stroke?.width ?? 0.5;
   }
 
   if (styleElement === "gridOverlay") {
@@ -222,10 +266,15 @@ function selectStyleElement() {
 
   if (styleElement === "compass") {
     styleCompass.style.display = "block";
-    const tr = parseTransform(compass.select("use").attr("transform"));
-    styleCompassShiftX.value = tr[0];
-    styleCompassShiftY.value = tr[1];
-    styleCompassSizeInput.value = tr[2];
+    const compassStyle = style.mapRenderer?.compass;
+    styleOpacityInput.value = compassStyle?.opacity ?? 0.8;
+    styleCompassShiftX.value = compassStyle?.x ?? 80;
+    styleCompassShiftY.value = compassStyle?.y ?? 80;
+    styleCompassSizeInput.value = compassStyle?.scale ?? 0.25;
+  }
+
+  if (styleElement === "tradeAnimation") {
+    styleOpacityInput.value = style.mapRenderer?.trade?.opacity ?? 1;
   }
 
   if (styleElement === "terrain") {
@@ -236,15 +285,17 @@ function selectStyleElement() {
   }
 
   if (styleElement === "population") {
+    const populationStyle = style.mapRenderer?.population;
     stylePopulation.style.display = "block";
-    stylePopulationRuralStrokeInput.value = stylePopulationRuralStrokeOutput.value = population
-      .select("#rural")
-      .attr("stroke");
-    stylePopulationUrbanStrokeInput.value = stylePopulationUrbanStrokeOutput.value = population
-      .select("#urban")
-      .attr("stroke");
+    styleOpacityInput.value = populationStyle?.opacity ?? 1;
+    stylePopulationRuralStrokeInput.value = stylePopulationRuralStrokeOutput.value =
+      populationStyle?.rural?.color ?? "#0000ff";
+    stylePopulationUrbanStrokeInput.value = stylePopulationUrbanStrokeOutput.value =
+      populationStyle?.urban?.color ?? "#ff0000";
     styleStrokeWidth.style.display = "block";
-    styleStrokeWidthInput.value = el.attr("stroke-width") || 0;
+    styleStrokeWidthInput.value = populationStyle?.rural?.width ?? 1.6;
+    styleStrokeDasharrayInput.value = populationStyle?.rural?.dash ?? "";
+    styleStrokeLinecapInput.value = populationStyle?.rural?.cap ?? "butt";
   }
 
   if (styleElement === "regions") {
@@ -363,9 +414,13 @@ function selectStyleElement() {
   }
 
   if (styleElement === "armies") {
+    const militaryStyle = style.mapRenderer?.military;
     styleArmies.style.display = "block";
-    styleArmiesFillOpacity.value = el.attr("fill-opacity");
-    styleArmiesSize.value = el.attr("box-size");
+    styleOpacityInput.value = militaryStyle?.opacity ?? 1;
+    styleArmiesFillOpacity.value = militaryStyle?.fillOpacity ?? 1;
+    styleArmiesSize.value = militaryStyle?.boxSize ?? 3;
+    styleStrokeInput.value = styleStrokeOutput.value = militaryStyle?.stroke ?? "#000000";
+    styleStrokeWidthInput.value = militaryStyle?.strokeWidth ?? 0.3;
   }
 
   if (styleElement === "emblems") {
@@ -379,29 +434,46 @@ function selectStyleElement() {
 
   if (styleElement === "goodsIcons") {
     styleStrokeWidth.style.display = "block";
-    styleStrokeWidthInput.value = el.attr("stroke-width") || "";
+    styleStrokeWidthInput.value = style.mapRenderer?.goods?.icons?.strokeWidth ?? 0.3;
     styleGoods.style.display = "block";
-    styleGoodsCircle.checked = +el.attr("data-circle");
-    styleGoodsSize.value = el.attr("data-size") || 6;
+    styleGoodsCircle.checked = style.mapRenderer?.goods?.icons?.circle ?? true;
+    styleGoodsSize.value = style.mapRenderer?.goods?.icons?.size ?? 6;
+    styleOpacityInput.value = style.mapRenderer?.goods?.icons?.opacity ?? 1;
+  }
+
+  if (styleElement === "goodsCells") {
+    styleOpacityInput.value = style.mapRenderer?.goods?.cells?.opacity ?? 1;
   }
 
   if (styleElement === "goodsBurgs") {
     styleStrokeWidth.style.display = "block";
-    styleStrokeWidthInput.value = el.attr("stroke-width") || "0.2";
+    styleStrokeWidthInput.value = style.mapRenderer?.goods?.burgs?.strokeWidth ?? 0.2;
     styleStroke.style.display = "block";
-    styleStrokeInput.value = styleStrokeOutput.value = el.attr("stroke") || "#41414f";
+    styleStrokeInput.value = styleStrokeOutput.value = style.mapRenderer?.goods?.burgs?.stroke ?? "#41414f";
     styleGoodsBurgs.style.display = "block";
-    styleGoodsBurgsSize.value = el.attr("data-size") || 3;
+    styleGoodsBurgsSize.value = style.mapRenderer?.goods?.burgs?.iconSize ?? 3;
+    styleOpacityInput.value = style.mapRenderer?.goods?.burgs?.opacity ?? 1;
   }
 
   if (styleElement === "markets") {
     styleStrokeWidth.style.display = "block";
-    styleStrokeWidthInput.value = el.attr("stroke-width") || "0.5";
+    const marketStyle = style.mapRenderer?.markets;
+    styleOpacityInput.value = marketStyle?.opacity ?? 1;
+    styleStrokeWidthInput.value = marketStyle?.borderWidth ?? 1;
     styleMarketsLayer.style.display = "block";
-    styleMarketsLayerFillOpacity.value = el.attr("fill-opacity") || "0";
-    styleMarketsSize.value = el.attr("data-size") || 3;
-    styleMarketsIconSize.value = el.attr("font-size") || 5;
-    styleMarketsIcon.innerHTML = el.attr("data-icon") || "⚖️";
+    styleMarketsLayerFillOpacity.value = marketStyle?.areaOpacity ?? 0.03;
+    styleMarketsSize.value = marketStyle?.radius ?? 3;
+    styleMarketsIconSize.value = marketStyle?.iconSize ?? 5;
+    styleMarketsIcon.innerHTML = marketStyle?.icon ?? "⚖️";
+  }
+
+  if (styleElement === "routes") {
+    const routeStyle = getPixiRouteLineStyle(routeGroup);
+    styleOpacityInput.value = routeStyle.opacity;
+    styleStrokeInput.value = styleStrokeOutput.value = routeStyle.color;
+    styleStrokeWidthInput.value = routeStyle.width;
+    styleStrokeDasharrayInput.value = routeStyle.dash;
+    styleStrokeLinecapInput.value = routeStyle.cap;
   }
 
   // update group options
@@ -414,6 +486,12 @@ function selectStyleElement() {
         styleGroupSelect.options.add(new Option(`${group.name} (${count})`, group.name, false, false));
       });
       styleGroupSelect.value = el.attr("data-group");
+    } else if (styleElement === "routes") {
+      for (const group of routeGroups) {
+        const count = pack.routes.filter(route => route.group === group).length;
+        styleGroupSelect.options.add(new Option(`${group} (${count})`, group, false, group === routeGroup));
+      }
+      styleGroupSelect.value = routeGroup;
     } else {
       const groups = ensureEl(styleElement).querySelectorAll("g");
       groups.forEach(el => {
@@ -474,6 +552,7 @@ styleGroupSelect.addEventListener("change", selectStyleElement);
 function getEl() {
   const el = styleElementSelect.value;
   const g = styleGroupSelect.value;
+  if (el === "routes") return d3.select(null);
   if (g === el || g === "") return svg.select("#" + el);
   if (el === "labels") return svg.select("#labels").select(`[data-group="${CSS.escape(g)}"]`);
   else return svg.select("#" + el).select("#" + g);
@@ -498,6 +577,9 @@ styleFillInput.addEventListener("input", function () {
   getEl().attr("fill", this.value);
   const groupStyle = style.labels.groups[styleGroupSelect.value];
   if (groupStyle) groupStyle.fill = this.value;
+  const pixiFillLayer = {prec: "precipitation", rivers: "rivers"}[styleElementSelect.value];
+  if (pixiFillLayer) setPixiAreaFillColor(pixiFillLayer, this.value);
+  if (styleElementSelect.value === "ice") setPixiIceStyle("fill", "color", this.value);
 });
 
 styleStrokeInput.addEventListener("input", function () {
@@ -505,7 +587,17 @@ styleStrokeInput.addEventListener("input", function () {
   getEl().attr("stroke", this.value);
   const groupStyle = style.labels.groups[styleGroupSelect.value];
   if (groupStyle) groupStyle.stroke = this.value;
-  if (styleElementSelect.value === "gridOverlay" && layerIsOn("toggleGrid")) drawGrid();
+  if (styleElementSelect.value === "gridOverlay") drawGrid();
+  const pixiStrokeLayer = {cells: "cells", prec: "precipitation", zones: "zones"}[styleElementSelect.value];
+  if (pixiStrokeLayer) {
+    setPixiLineStyle(pixiStrokeLayer, "color", this.value);
+  }
+  if (styleElementSelect.value === "ice") setPixiIceStyle("stroke", "color", this.value);
+  if (styleElementSelect.value === "goodsBurgs") setPixiGoodsStyle("burgs", "stroke", this.value);
+  if (styleElementSelect.value === "armies") setPixiMilitaryStyle("stroke", this.value);
+  if (styleElementSelect.value === "routes") {
+    setPixiRouteLineStyle(styleGroupSelect.value || "roads", "color", this.value);
+  }
 });
 
 // measurers are rendered with baked-in sizes, so a style change requires a redraw
@@ -517,7 +609,30 @@ styleStrokeWidthInput.addEventListener("input", e => {
   getEl().attr("stroke-width", e.target.value);
   const groupStyle = style.labels.groups[styleGroupSelect.value];
   if (groupStyle) groupStyle["stroke-width"] = e.target.value;
-  if (styleElementSelect.value === "gridOverlay" && layerIsOn("toggleGrid")) drawGrid();
+  if (styleElementSelect.value === "gridOverlay") drawGrid();
+  const pixiStrokeLayer = {
+    cells: "cells",
+    prec: "precipitation",
+    temperature: "temperature",
+    zones: "zones"
+  }[styleElementSelect.value];
+  if (pixiStrokeLayer) {
+    setPixiLineStyle(pixiStrokeLayer, "width", Number(e.target.value));
+  }
+  if (styleElementSelect.value === "ice") setPixiIceStyle("stroke", "width", Number(e.target.value));
+  if (styleElementSelect.value === "goodsIcons")
+    setPixiGoodsStyle("icons", "strokeWidth", Number(e.target.value));
+  if (styleElementSelect.value === "goodsBurgs")
+    setPixiGoodsStyle("burgs", "strokeWidth", Number(e.target.value));
+  if (styleElementSelect.value === "markets") setPixiMarketStyle("borderWidth", Number(e.target.value));
+  if (styleElementSelect.value === "population") {
+    setPixiPopulationLineStyle("rural", "width", Number(e.target.value));
+    setPixiPopulationLineStyle("urban", "width", Number(e.target.value));
+  }
+  if (styleElementSelect.value === "armies") setPixiMilitaryStyle("strokeWidth", Number(e.target.value));
+  if (styleElementSelect.value === "routes") {
+    setPixiRouteLineStyle(styleGroupSelect.value || "roads", "width", Number(e.target.value));
+  }
   redrawMeasurersOnStyleChange();
 });
 
@@ -529,13 +644,35 @@ styleLetterSpacingInput.addEventListener("input", e => {
 
 styleStrokeDasharrayInput.addEventListener("input", function () {
   getEl().attr("stroke-dasharray", this.value);
-  if (styleElementSelect.value === "gridOverlay" && layerIsOn("toggleGrid")) drawGrid();
+  if (styleElementSelect.value === "gridOverlay") drawGrid();
+  const pixiStrokeLayer = {cells: "cells", temperature: "temperature", zones: "zones"}[styleElementSelect.value];
+  if (pixiStrokeLayer) {
+    setPixiLineStyle(pixiStrokeLayer, "dash", this.value);
+  }
+  if (styleElementSelect.value === "routes") {
+    setPixiRouteLineStyle(styleGroupSelect.value || "roads", "dash", this.value);
+  }
+  if (styleElementSelect.value === "population") {
+    setPixiPopulationLineStyle("rural", "dash", this.value);
+    setPixiPopulationLineStyle("urban", "dash", this.value);
+  }
   redrawMeasurersOnStyleChange();
 });
 
 styleStrokeLinecapInput.addEventListener("change", function () {
   getEl().attr("stroke-linecap", this.value);
-  if (styleElementSelect.value === "gridOverlay" && layerIsOn("toggleGrid")) drawGrid();
+  if (styleElementSelect.value === "gridOverlay") drawGrid();
+  const pixiStrokeLayer = {cells: "cells", temperature: "temperature", zones: "zones"}[styleElementSelect.value];
+  if (pixiStrokeLayer) {
+    setPixiLineStyle(pixiStrokeLayer, "cap", this.value);
+  }
+  if (styleElementSelect.value === "routes") {
+    setPixiRouteLineStyle(styleGroupSelect.value || "roads", "cap", this.value);
+  }
+  if (styleElementSelect.value === "population") {
+    setPixiPopulationLineStyle("rural", "cap", this.value);
+    setPixiPopulationLineStyle("urban", "cap", this.value);
+  }
 });
 
 styleDisplayInput.addEventListener("change", function () {
@@ -544,6 +681,32 @@ styleDisplayInput.addEventListener("change", function () {
 
 styleOpacityInput.addEventListener("input", e => {
   getEl().attr("opacity", e.target.value);
+  const pixiLayer = {
+    armies: "military",
+    biomes: "biomes",
+    cells: "cells",
+    compass: "compass",
+    cults: "cultures",
+    gridOverlay: "grid",
+    ice: "ice",
+    markers: "markers",
+    prec: "precipitation",
+    population: "population",
+    provs: "provinces",
+    relig: "religions",
+    rivers: "rivers",
+    temperature: "temperature",
+    tradeAnimation: "trade",
+    zones: "zones"
+  }[styleElementSelect.value];
+  if (pixiLayer) setPixiLayerOpacity(pixiLayer, e.target.value);
+  if (styleElementSelect.value === "goodsIcons") setPixiGoodsStyle("icons", "opacity", Number(e.target.value));
+  if (styleElementSelect.value === "goodsCells") setPixiGoodsStyle("cells", "opacity", Number(e.target.value));
+  if (styleElementSelect.value === "goodsBurgs") setPixiGoodsStyle("burgs", "opacity", Number(e.target.value));
+  if (styleElementSelect.value === "markets") setPixiMarketStyle("opacity", Number(e.target.value));
+  if (styleElementSelect.value === "routes") {
+    setPixiRouteLineStyle(styleGroupSelect.value || "roads", "opacity", Number(e.target.value));
+  }
   const groupStyle = style.labels.groups[styleGroupSelect.value];
   if (groupStyle) groupStyle.opacity = e.target.value;
 });
@@ -599,13 +762,13 @@ styleClippingInput.addEventListener("change", function () {
 
 styleGridType.addEventListener("change", function () {
   getEl().attr("type", this.value);
-  if (layerIsOn("toggleGrid")) drawGrid();
+  drawGrid();
   calculateFriendlyGridSize();
 });
 
 styleGridScale.addEventListener("input", function () {
   getEl().attr("scale", this.value);
-  if (layerIsOn("toggleGrid")) drawGrid();
+  drawGrid();
   calculateFriendlyGridSize();
 });
 
@@ -617,17 +780,22 @@ function calculateFriendlyGridSize() {
 
 styleGridShiftX.addEventListener("input", function () {
   getEl().attr("dx", this.value);
-  if (layerIsOn("toggleGrid")) drawGrid();
+  drawGrid();
 });
 
 styleGridShiftY.addEventListener("input", function () {
   getEl().attr("dy", this.value);
-  if (layerIsOn("toggleGrid")) drawGrid();
+  drawGrid();
 });
 
 styleRescaleMarkers.addEventListener("change", function () {
-  markers.attr("rescale", +this.checked);
-  invokeActiveZooming();
+  style.mapRenderer ||= {};
+  style.mapRenderer.markers = {...(style.mapRenderer.markers || {}), opacity: style.mapRenderer.markers?.opacity ?? 1, rescale: this.checked};
+  window.dispatchEvent(
+    new CustomEvent("map:pixi-renderer:command", {
+      detail: {command: "invalidate-layer", layer: "markers"}
+    })
+  );
 });
 
 styleOceanFill.addEventListener("input", function () {
@@ -831,24 +999,27 @@ styleReliefDensity.addEventListener("change", e => {
 
 styleTemperatureFillOpacityInput.addEventListener("input", e => {
   temperature.attr("fill-opacity", e.target.value);
+  setPixiTemperatureStyle({bandOpacity: Number(e.target.value)});
 });
 
 styleTemperatureFontSizeInput.addEventListener("input", e => {
   temperature.attr("font-size", e.target.value + "px");
+  setPixiTemperatureStyle({labels: {...getPixiTemperatureStyle().labels, fontSize: Number(e.target.value)}});
 });
 
 styleTemperatureFillInput.addEventListener("input", e => {
   temperature.attr("fill", e.target.value);
   styleTemperatureFillOutput.value = e.target.value;
+  setPixiTemperatureStyle({labels: {...getPixiTemperatureStyle().labels, color: e.target.value}});
 });
 
 stylePopulationRuralStrokeInput.addEventListener("input", e => {
-  population.select("#rural").attr("stroke", e.target.value);
+  setPixiPopulationLineStyle("rural", "color", e.target.value);
   stylePopulationRuralStrokeOutput.value = e.target.value;
 });
 
 stylePopulationUrbanStrokeInput.addEventListener("input", e => {
-  population.select("#urban").attr("stroke", e.target.value);
+  setPixiPopulationLineStyle("urban", "color", e.target.value);
   stylePopulationUrbanStrokeOutput.value = e.target.value;
 });
 
@@ -873,8 +1044,14 @@ styleCompassShiftX.addEventListener("input", shiftCompass);
 styleCompassShiftY.addEventListener("input", shiftCompass);
 
 function shiftCompass() {
-  const tr = `translate(${styleCompassShiftX.value} ${styleCompassShiftY.value}) scale(${styleCompassSizeInput.value})`;
-  compass.select("use").attr("transform", tr);
+  style.mapRenderer ||= {};
+  style.mapRenderer.compass = {
+    ...(style.mapRenderer.compass || {}),
+    scale: Number(styleCompassSizeInput.value),
+    x: Number(styleCompassShiftX.value),
+    y: Number(styleCompassShiftY.value)
+  };
+  invalidateSemanticLayer("compass");
 }
 
 styleLegendColItems.addEventListener("input", e => {
@@ -1013,7 +1190,166 @@ styleFontShiftY.addEventListener("input", e => {
 
 styleStatesBodyOpacity.addEventListener("input", e => {
   statesBody.attr("opacity", e.target.value);
+  setPixiLayerOpacity("states", e.target.value);
 });
+
+function setPixiLayerOpacity(layer, opacity) {
+  style.mapRenderer ||= {};
+  const current = style.mapRenderer[layer] || {};
+  style.mapRenderer[layer] = {
+    ...current,
+    ...(
+      ["cells", "compass", "grid", "ice", "markers", "military", "population", "precipitation", "rivers", "temperature", "trade", "zones"].includes(
+        layer
+      )
+      ? {}
+      : {fallbackColor: current.fallbackColor || "#888888"}),
+    opacity: Number(opacity)
+  };
+  window.dispatchEvent(
+    new CustomEvent("map:pixi-renderer:command", {
+      detail: {command: "invalidate-layer", layer}
+    })
+  );
+}
+
+function invalidateSemanticLayer(layer) {
+  window.dispatchEvent(
+    new CustomEvent("map:pixi-renderer:command", {
+      detail: {command: "invalidate-layer", layer}
+    })
+  );
+}
+
+function setPixiIceStyle(section, property, value) {
+  style.mapRenderer ||= {};
+  const current = style.mapRenderer.ice || {};
+  const defaultStyle = current.default || {};
+  const nextSection = {...(defaultStyle[section] || {}), [property]: value};
+  const nextDefault = {...defaultStyle, [section]: nextSection};
+  const roles = Object.fromEntries(
+    Object.entries(current.roles || {}).map(([role, roleStyle]) => [
+      role,
+      {...roleStyle, [section]: {...(roleStyle[section] || {}), [property]: value}}
+    ])
+  );
+  style.mapRenderer.ice = {...current, default: nextDefault, roles};
+  invalidateSemanticLayer("ice");
+}
+
+function setPixiGoodsStyle(section, property, value) {
+  style.mapRenderer ||= {};
+  const current = style.mapRenderer.goods || {};
+  style.mapRenderer.goods = {...current, [section]: {...(current[section] || {}), [property]: value}};
+  invalidateSemanticLayer("goods");
+}
+
+function setPixiMarketStyle(property, value) {
+  style.mapRenderer ||= {};
+  style.mapRenderer.markets = {...(style.mapRenderer.markets || {}), [property]: value};
+  invalidateSemanticLayer("markets");
+}
+
+function setPixiPopulationLineStyle(role, property, value) {
+  style.mapRenderer ||= {};
+  const current = style.mapRenderer.population || {};
+  style.mapRenderer.population = {...current, [role]: {...(current[role] || {}), [property]: value}};
+  invalidateSemanticLayer("population");
+}
+
+function setPixiMilitaryStyle(property, value) {
+  style.mapRenderer ||= {};
+  style.mapRenderer.military = {...(style.mapRenderer.military || {}), [property]: value};
+  invalidateSemanticLayer("military");
+}
+
+function setPixiLineStyle(layer, property, value) {
+  style.mapRenderer ||= {};
+  const layerStyle = style.mapRenderer[layer] || {};
+  const stroke = (["grid", "precipitation", "temperature", "zones"].includes(layer)
+    ? layerStyle.stroke
+    : layerStyle) || {
+    cap: "butt",
+    color: "#333333",
+    dash: "",
+    opacity: 1,
+    width: 0
+  };
+  style.mapRenderer[layer] = ["grid", "precipitation", "temperature", "zones"].includes(layer)
+    ? {...layerStyle, stroke: {...stroke, [property]: value}}
+    : {...stroke, [property]: value};
+  window.dispatchEvent(
+    new CustomEvent("map:pixi-renderer:command", {
+      detail: {command: "invalidate-layer", layer}
+    })
+  );
+}
+
+function setPixiAreaFillColor(layer, color) {
+  style.mapRenderer ||= {};
+  const layerStyle = style.mapRenderer[layer] || {};
+  style.mapRenderer[layer] = {
+    ...layerStyle,
+    fill: {...layerStyle.fill, color, opacity: layerStyle.fill?.opacity ?? 1}
+  };
+  window.dispatchEvent(
+    new CustomEvent("map:pixi-renderer:command", {
+      detail: {command: "invalidate-layer", layer}
+    })
+  );
+}
+
+function setPixiRouteLineStyle(group, property, value) {
+  style.mapRenderer ||= {};
+  const routesStyle = style.mapRenderer.routes || {default: {}, roles: {}};
+  const roles = routesStyle.roles || {};
+  const lineStyle = getPixiRouteLineStyle(group);
+  style.mapRenderer.routes = {
+    ...routesStyle,
+    roles: {...roles, [group]: {...lineStyle, [property]: value}}
+  };
+  window.dispatchEvent(
+    new CustomEvent("map:pixi-renderer:command", {
+      detail: {command: "invalidate-layer", layer: "routes"}
+    })
+  );
+}
+
+function getPixiRouteGroups() {
+  const roles = style.mapRenderer?.routes?.roles || {};
+  return [...new Set(["roads", "trails", "searoutes", ...Object.keys(roles), ...pack.routes.map(route => route.group)])];
+}
+
+function getPixiRouteLineStyle(group = "roads") {
+  const defaults = {
+    roads: {cap: "butt", color: "#d06324", dash: "2", opacity: 0.9, width: 0.7},
+    trails: {cap: "butt", color: "#d06324", dash: ".8 1.6", opacity: 0.9, width: 0.25},
+    searoutes: {cap: "round", color: "#ffffff", dash: "1 2", opacity: 0.9, width: 0.35}
+  };
+  const routesStyle = style.mapRenderer?.routes || {};
+  const base = defaults[group] || defaults.roads;
+  return {...base, ...(routesStyle.default || {}), ...(routesStyle.roles?.[group] || {})};
+}
+
+function getPixiTemperatureStyle() {
+  style.mapRenderer ||= {};
+  return style.mapRenderer.temperature || {
+    bandOpacity: 0.3,
+    labels: {color: "#000000", fontFamily: "Arial, sans-serif", fontSize: 8, fontWeight: "bold", opacity: 1},
+    opacity: 1,
+    stroke: {cap: "butt", color: "#000000", dash: "", opacity: 1, width: 1.8}
+  };
+}
+
+function setPixiTemperatureStyle(patch) {
+  style.mapRenderer ||= {};
+  style.mapRenderer.temperature = {...getPixiTemperatureStyle(), ...patch};
+  window.dispatchEvent(
+    new CustomEvent("map:pixi-renderer:command", {
+      detail: {command: "invalidate-layer", layer: "temperature"}
+    })
+  );
+}
 
 styleStatesBodyFilter.addEventListener("change", function () {
   statesBody.attr("filter", this.value);
@@ -1035,18 +1371,12 @@ styleStatesHaloBlur.addEventListener("input", e => {
 });
 
 styleArmiesFillOpacity.addEventListener("input", e => {
-  armies.attr("fill-opacity", e.target.value);
+  setPixiMilitaryStyle("fillOpacity", Number(e.target.value));
 });
 
 styleArmiesSize.addEventListener("input", e => {
   const value = Number(e.target.value);
-  armies.attr("box-size", value).attr("font-size", value * 2);
-
-  armies.selectAll("g").remove(); // clear armies layer
-  pack.states.forEach(s => {
-    if (!s.i || s.removed || !s.military.length) return;
-    drawRegiments(s.military, s.i);
-  });
+  setPixiMilitaryStyle("boxSize", value);
 });
 
 emblemsStateSizeInput.addEventListener("change", e => {
@@ -1065,39 +1395,31 @@ emblemsBurgSizeInput.addEventListener("change", e => {
 });
 
 styleGoodsCircle.addEventListener("change", function () {
-  goods.select("#goodsIcons").attr("data-circle", +this.checked);
-  drawGoods();
+  setPixiGoodsStyle("icons", "circle", this.checked);
 });
 
 styleGoodsSize.addEventListener("change", function () {
-  goods.select("#goodsIcons").attr("data-size", this.value);
-  drawGoods();
+  setPixiGoodsStyle("icons", "size", Number(this.value));
 });
 
 styleGoodsBurgsSize.addEventListener("change", function () {
-  goods.select("#goodsBurgs").attr("data-size", this.value);
-  drawGoods();
+  setPixiGoodsStyle("burgs", "iconSize", Number(this.value));
 });
 
-styleMarketsLayerFillOpacity.addEventListener("input", e => {
-  markets.attr("fill-opacity", e.target.value);
-});
+styleMarketsLayerFillOpacity.addEventListener("input", e => setPixiMarketStyle("areaOpacity", Number(e.target.value)));
 
 styleMarketsSize.addEventListener("change", function () {
-  markets.attr("data-size", this.value);
-  drawMarketsLayer();
+  setPixiMarketStyle("radius", Number(this.value));
 });
 
 styleMarketsIconSize.addEventListener("change", function () {
-  markets.attr("font-size", this.value);
-  drawMarketsLayer();
+  setPixiMarketStyle("iconSize", Number(this.value));
 });
 
 styleMarketsIcon.addEventListener("click", function () {
-  window.Controllers.IconSelector.open(markets.attr("data-icon") || "⚖️", value => {
-    markets.attr("data-icon", value);
+  window.Controllers.IconSelector.open(style.mapRenderer?.markets?.icon || "⚖️", value => {
+    setPixiMarketStyle("icon", value);
     this.innerHTML = value;
-    drawMarketsLayer();
   });
 });
 

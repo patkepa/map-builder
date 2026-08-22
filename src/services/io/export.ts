@@ -2,6 +2,7 @@ import type { Selection } from "d3";
 import { select } from "d3";
 import { tip } from "@/components/tooltips";
 import { drawScaleBar, fitScaleBar } from "@/renderers/draw-scalebar";
+import { getPixiRendererCanvas } from "@/renderers/pixi/pixi-renderer-controller";
 import { ViewportLayers } from "@/renderers/viewport/viewport-renderer";
 import { getUsedFonts, loadFontsAsDataURI } from "@/services/fonts";
 import {
@@ -57,26 +58,9 @@ async function exportToSvg(): Promise<void> {
 async function exportToPng(): Promise<void> {
   TIME && console.time("exportToPng");
   try {
-    const url = await getMapURL("png");
     const resolution = ensureEl<HTMLInputElement>("pngResolutionInput").valueAsNumber;
     const link = document.createElement("a");
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d")!;
-    canvas.width = svgWidth * resolution;
-    canvas.height = svgHeight * resolution;
-
-    const blob = await new Promise<Blob>((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob(blob => {
-          if (!blob) return reject(new Error("Cannot render PNG image"));
-          resolve(blob);
-        }, "image/png");
-      };
-      img.onerror = () => reject(new Error("Cannot load map image for PNG export"));
-      img.src = url;
-    });
+    const { blob, canvas } = await renderViewportRaster("image/png", resolution);
 
     link.download = `${getFileName()}.png`;
     link.href = window.URL.createObjectURL(blob);
@@ -99,43 +83,71 @@ async function exportToPng(): Promise<void> {
 async function exportToJpeg(): Promise<void> {
   TIME && console.time("exportToJpeg");
   try {
-    const url = await getMapURL("png");
     const resolution = ensureEl<HTMLInputElement>("pngResolutionInput").valueAsNumber;
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d")!;
-    canvas.width = svgWidth * resolution;
-    canvas.height = svgHeight * resolution;
-
     const quality = Math.min(rn(1 - resolution / 20, 2), 0.92);
-    const blob = await new Promise<Blob>((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob(
-          blob => {
-            if (!blob) return reject(new Error("Cannot render JPEG image"));
-            resolve(blob);
-          },
-          "image/jpeg",
-          quality
-        );
-      };
-      img.onerror = () => reject(new Error("Cannot load map image for JPEG export"));
-      img.src = url;
-    });
+    const { blob, canvas } = await renderViewportRaster("image/jpeg", resolution, quality);
 
     const link = document.createElement("a");
     link.download = `${getFileName()}.jpeg`;
     link.href = window.URL.createObjectURL(blob);
     link.click();
     tip(`${link.download} is saved. Open "Downloads" screen (CTRL + J) to check`, true, "success", 7000);
-    window.setTimeout(() => window.URL.revokeObjectURL(link.href), 5000);
+    window.setTimeout(() => {
+      canvas.remove();
+      window.URL.revokeObjectURL(link.href);
+    }, 5000);
   } catch (error) {
     ERROR && console.error(error);
     tip(`JPEG export failed: ${(error as Error)?.message || "Unknown error"}`, true, "error", 5000);
   } finally {
     TIME && console.timeEnd("exportToJpeg");
   }
+}
+
+async function renderViewportRaster(
+  mimeType: "image/jpeg" | "image/png",
+  resolution: number,
+  qualityArgument = 1
+): Promise<{ blob: Blob; canvas: HTMLCanvasElement }> {
+  const pixiCanvas = getPixiRendererCanvas();
+  if (!pixiCanvas) throw new Error("Pixi renderer is not ready for raster export");
+
+  // Pixi is the authoritative base renderer. The SVG image contains only layers
+  // that have not migrated yet, so it is composited as a temporary overlay.
+  const overlayUrl = await getMapURL("png");
+  const overlay = await loadRasterImage(overlayUrl);
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Cannot initialize raster export canvas");
+
+  canvas.width = svgWidth * resolution;
+  canvas.height = svgHeight * resolution;
+  context.drawImage(pixiCanvas, 0, 0, canvas.width, canvas.height);
+  context.drawImage(overlay, 0, 0, canvas.width, canvas.height);
+
+  return { blob: await canvasToBlob(canvas, mimeType, qualityArgument), canvas };
+}
+
+function loadRasterImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Cannot load SVG overlay for raster export"));
+    image.src = url;
+  });
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, qualityArgument = 1): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      blob => {
+        if (blob) resolve(blob);
+        else reject(new Error(`Cannot render ${mimeType} image`));
+      },
+      mimeType,
+      qualityArgument
+    );
+  });
 }
 
 async function exportToPngTiles(): Promise<void> {
@@ -226,20 +238,6 @@ async function exportToPngTiles(): Promise<void> {
       img.onerror = err => reject(err);
     });
   }
-
-  // promisified canvas.toBlob
-  function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, qualityArgument = 1) {
-    return new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob(
-        blob => {
-          if (blob) resolve(blob);
-          else reject(new Error("Canvas toBlob() error"));
-        },
-        mimeType,
-        qualityArgument
-      );
-    });
-  }
 }
 
 // parse map svg to object url
@@ -273,13 +271,11 @@ async function getMapURL(type: string, options: GetMapURLOptions = {}): Promise<
       fitScaleBar(clone.select("#scaleBar") as unknown as Parameters<typeof fitScaleBar>[0], graphWidth, graphHeight);
     }
   }
-
   const isFirefox = navigator.userAgent.toLowerCase().indexOf("firefox") > -1;
   if (isFirefox && type === "mesh") clone.select("#oceanPattern").remove();
   if (noLabels) {
     clone.selectAll("#labels [data-label-type]").remove();
     clone.selectAll("#textPaths [data-label-type]").remove();
-    clone.select("#icons #burgIcons").remove();
   }
   if (noWater) {
     clone.select("#oceanBase").attr("opacity", 0);
@@ -380,96 +376,9 @@ async function getMapURL(type: string, options: GetMapURLOptions = {}): Promise<
     }
   }
 
-  // add wind rose
-  if (cloneEl.getElementById("compass")) {
-    const rose = svgDefs.getElementById("defs-compass-rose");
-    if (rose) cloneDefs.appendChild(rose.cloneNode(true));
-  }
-
-  // add burs icons
-  if (cloneEl.getElementById("burgIcons")) {
-    const groups = cloneEl.getElementById("burgIcons")!.querySelectorAll("g");
-    for (const group of Array.from(groups)) {
-      const icon = group.dataset.icon && svgDefs.querySelector(group.dataset.icon);
-      if (icon) cloneDefs.appendChild(icon.cloneNode(true));
-    }
-  }
-
-  // add goods icons
-  if (cloneEl.getElementById("goodsIcons") || cloneEl.getElementById("goodsBurgs")) {
-    const uniqueIcons = new Set<string>();
-    const goodsUseElements = cloneEl.querySelectorAll("#goodsIcons use, #goodsBurgs use");
-    for (const el of goodsUseElements) {
-      const href = el.getAttribute("href") || el.getAttribute("xlink:href");
-      if (href) uniqueIcons.add(href);
-    }
-    const goodsIconsDefs = svgDefs.getElementById("good-icons");
-    for (const href of uniqueIcons) {
-      const element = goodsIconsDefs?.querySelector(href);
-      if (element) cloneDefs.appendChild(element.cloneNode(true));
-    }
-  }
-
-  // add port icon
-  if (cloneEl.getElementById("anchors")) {
-    const anchor = svgDefs.getElementById("icon-anchor");
-    if (anchor) cloneDefs.appendChild(anchor.cloneNode(true));
-  }
-
-  // add grid pattern
-  if (cloneEl.getElementById("gridOverlay")?.hasChildNodes()) {
-    const type = cloneEl.getElementById("gridOverlay")!.getAttribute("type");
-    const pattern = svgDefs.getElementById(`pattern_${type}`);
-    if (pattern) cloneDefs.appendChild(pattern.cloneNode(true));
-  }
-
-  {
-    // replace external marker icons
-    const externalMarkerImages = cloneEl.querySelectorAll<SVGImageElement>('#markers image[href]:not([href=""])');
-    const imageHrefs = Array.from(externalMarkerImages).map(img => img.getAttribute("href"));
-
-    for (const url of imageHrefs) {
-      if (!url) continue;
-      await new Promise<void>(resolve => {
-        getBase64(url, base64 => {
-          externalMarkerImages.forEach(img => {
-            if (typeof base64 === "string" && img.getAttribute("href") === url) img.setAttribute("href", base64);
-          });
-          resolve();
-        });
-      });
-    }
-  }
-
-  {
-    // replace external regiment icons
-    const externalRegimentImages = cloneEl.querySelectorAll<SVGImageElement>('#armies image[href]:not([href=""])');
-    const imageHrefs = Array.from(externalRegimentImages).map(img => img.getAttribute("href"));
-
-    for (const url of imageHrefs) {
-      if (!url) continue;
-      await new Promise<void>(resolve => {
-        getBase64(url, base64 => {
-          externalRegimentImages.forEach(img => {
-            if (typeof base64 === "string" && img.getAttribute("href") === url) img.setAttribute("href", base64);
-          });
-          resolve();
-        });
-      });
-    }
-  }
-
   if (!cloneEl.getElementById("fogging-cont")) cloneEl.getElementById("fog")?.remove(); // remove unused fog
   if (!cloneEl.getElementById("regions")) cloneEl.getElementById("statePaths")?.remove(); // removed unused statePaths
   if (!cloneEl.getElementById("labels")) cloneEl.getElementById("textPaths")?.remove(); // removed unused textPaths
-
-  // add armies style
-  if (cloneEl.getElementById("armies")) {
-    cloneEl.insertAdjacentHTML(
-      "afterbegin",
-      "<style>#armies text {stroke: none; fill: #fff; text-shadow: 0 0 4px #000; dominant-baseline: central; text-anchor: middle; font-family: Helvetica; fill-opacity: 1;}#armies text.regimentIcon {font-size: .8em;}</style>"
-    );
-  }
 
   // add xlink: for href to support svg 1.1
   if (type === "svg") {
